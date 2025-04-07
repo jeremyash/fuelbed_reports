@@ -1,8 +1,8 @@
 ---
 title: "Old and New FCCS Summary for the `r params$UNIT`"
 params:
-  UNIT: ""
-  AGENCY: ""
+  UNIT: "" # "Superior National Forest" # hardcoded for testing
+  AGENCY: "" # "USFS" # hardcoded for testing
 output:
   html_document: 
     css: report_styles.css
@@ -22,6 +22,10 @@ library(terra)
 library(tidyverse)
 library(readxl)
 library(kableExtra)
+
+# assign params to objects within rmd
+UNIT <- params$UNIT
+AGENCY <- params$AGENCY
 
 # load distrubance codes
 dist_codes <- read_csv("../raw_data/DisturbanceCodes.csv") %>% 
