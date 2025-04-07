@@ -1,0 +1,380 @@
+---
+title: "Old and New FCCS Summary for the `r params$UNIT`"
+params:
+  UNIT: ""
+  AGENCY: ""
+output:
+  html_document: 
+    css: report_styles.css
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(width = 1800)
+
+## SPATIAL
+library(sf)
+library(terra)
+
+## DATA MANAGEMENT
+library(tidyverse)
+library(readxl)
+library(kableExtra)
+
+# load distrubance codes
+dist_codes <- read_csv("../raw_data/DisturbanceCodes.csv") %>% 
+  fill(Type) %>% 
+  fill(Severity) %>%  
+  select(dist_id = DistCode,
+         type = Type) %>% 
+  mutate(dist_id = as.character(dist_id))
+
+# read in new and old FCCS data
+conus <- rast("../gis/LF2022_FCCS_220_CONUS/LF2022_FCCS_220_CONUS/Tif/LC22_FCCS_220.tif")
+new_fac <- conus
+
+old <- rast("../gis/old2_project_30m.tif")
+colnames(levels(old)[[1]])[2] <- "base_fccs"
+
+# aggregate new data to parent FCCS fuelbed and assign to new_fac
+base_fccs <- cats(new_fac)[[1]] %>% 
+  select(FCCS, FCCSID, R, G, B) %>% 
+  rowwise() %>% 
+  mutate(FCCSID = gsub("_", "-", FCCSID)) %>% 
+  separate(FCCSID, into = c("base_fccs", "dist_id"), sep = "-") %>% 
+  mutate(base_fccs = ifelse(base_fccs == "Fill", FCCS, base_fccs)) %>% 
+  select(-dist_id) %>% 
+  mutate(base_fccs = as.numeric(base_fccs)) %>% 
+  arrange(base_fccs) %>% 
+  mutate(base_fccs = as.character(base_fccs)) 
+
+# create 
+levels(new_fac) <- base_fccs
+activeCat(new_fac) <- 1
+
+# read in df of colors for all beds
+col_df <- read_csv("../data/col_df.csv",
+                   col_types = list("c", "c")) %>% 
+  as.data.frame() 
+
+
+# assign color values to both old and new data
+coltab(new_fac) <- col_df
+coltab(old) <- col_df
+
+# create dataframe of available gis admin data and filter to specified agency
+sh_ls <- data.frame(agency = c("USFS", "NPS", "DoD", "BLM"),
+                    path = c("../gis/S_USA.AdministrativeForest",
+                             "../gis/nps_boundary",
+                             "../gis/tl_2019_us_mil",
+                             "../gis/BLM_Natl_NLCS_National_Monuments_National_Conservation_Areas_Polygons_2978908493776641245.geojson"),
+                    unit_var = c("FORESTNAME", "UNIT_NAME", "FULLNAME", "NCA_NAME")) %>% 
+  filter(agency == AGENCY)
+
+# filter to AGENCY/UNIT
+unit_unproj <- st_read(sh_ls$path) %>%
+  filter(get(sh_ls$unit_var) == UNIT)
+unit <- st_transform(unit_unproj, crs = crs(conus)) %>%
+  mutate(ID = seq(1, n(), 1))
+unit_area <- formatC(round(as.numeric(st_area(unit)*0.000247105), digits = 0), format = "d", big.mark = ",")
+
+# crop old rasters with unit
+unit_old_cr <- crop(old, unit, snap="out")                    
+unit_old_fr <- rasterize(unit, unit_old_cr) 
+unit_old <- mask(x=unit_old_cr, mask=unit_old_fr)
+
+  
+# crop new rasters with unit
+unit_new_cr <- crop(new_fac, unit, snap="out")                    
+unit_new_fr <- rasterize(unit, unit_new_cr) 
+unit_new <- mask(x=unit_new_cr, mask=unit_new_fr)
+
+# sum data by fuelbed x dataset
+new_sum <- freq(unit_new)
+old_sum <- freq(unit_old)
+  
+#calculate area for new fccs
+new_sum_df <- new_sum %>% 
+    rename(fccs = value) %>% 
+    group_by(fccs) %>% 
+    summarise(new_count = sum(count, na.rm=TRUE)) %>% 
+    ungroup() %>% 
+    rowwise() %>% 
+    mutate(new_area_acres = new_count*30*30*0.000247105)
+  
+  
+#calculate area for new fccs
+old_sum_df <- old_sum %>% 
+    rename(fccs = value) %>% 
+    group_by(fccs) %>% 
+    summarise(old_count = sum(count, na.rm=TRUE)) %>% 
+    ungroup() %>% 
+    rowwise() %>% 
+    mutate(old_area_acres = old_count*30*30*0.000247105)
+  
+  
+# data summary table
+fccs_sum_df <- full_join(new_sum_df, old_sum_df) %>% 
+    replace_na(list(old_area_acres = 0, new_area_acres = 0, old_count = 0, new_count = 0)) %>% 
+    mutate('new-old_area' = new_area_acres - old_area_acres)
+  
+
+# create old legend table
+old_leg_max <- ifelse(dim(old_sum_df)[1] <= 20, dim(old_sum_df)[1], 20)
+old_col_df <- old_sum_df %>% 
+  rename(base_fccs = fccs) %>% 
+  mutate(old_area_per = round(old_area_acres/sum(old_sum_df$old_area_acres)*100, digits = 0)) %>% 
+  mutate(old_area_char = ifelse(old_area_per < 1, "<1", as.character(old_area_per))) %>% 
+  arrange(desc(old_area_per)) %>% 
+  left_join(., col_df) %>% 
+  mutate(blank = rep("", n())) %>% 
+  as.data.frame()
+old_col_leg <- old_col_df[1:old_leg_max, c("blank", "base_fccs", "old_area_char", "hex")]
+
+# text of other fuelbeds
+old_other_fccs <- if(dim(old_col_df)[1] > 20) 
+{sort(as.numeric(old_col_df[c((old_leg_max + 1)):dim(old_col_df)[1], "base_fccs"]))} else{NULL}
+
+
+old_other_statement <- ifelse(is.null(old_other_fccs),
+                              "", ifelse(length(old_other_fccs) == 1,
+                                         paste0(paste0("Other fuelbeds include: "), 
+                                 paste0(old_other_fccs, ".")), 
+                                 paste0(paste0("Other fuelbeds include: "), 
+                                 paste0(old_other_fccs[-length(old_other_fccs)],  collapse = ", "), 
+                                 paste0(" and ", old_other_fccs[length(old_other_fccs)], "."))))
+
+# create kable table for old legend
+old_leg <- kbl(old_col_leg[,1:3], booktabs = T, linesep = "",  col.names = linebreak(c(" ", "FCCS", "Area (%)")), align = "c") %>%
+  kable_styling(full_width = F) %>%
+  kable_styling(font_size = 10, position = "center") %>% 
+  kable_styling(latex_options = "hold_position") %>% 
+  column_spec(1, color = "black", background = old_col_leg$hex, width = "0.5in") %>% 
+  column_spec(2, width = "0.5in") %>%
+  column_spec(3, width = "0.5in") %>%
+  footnote(general = old_other_statement, general_title = "", threeparttable = TRUE)  
+  
+
+
+# create new legend table
+new_leg_max <- ifelse(dim(new_sum_df)[1] <= 20, dim(new_sum_df)[1], 20)
+new_col_df <- new_sum_df %>% 
+  rename(base_fccs = fccs) %>% 
+  mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>% 
+  mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+  arrange(desc(new_area_per)) %>% 
+  left_join(., col_df) %>% 
+  mutate(blank = rep("", n())) %>% 
+  as.data.frame()
+new_col_leg <- new_col_df[1:new_leg_max, c("blank", "base_fccs", "new_area_char", "hex")]
+
+# text of other fuelbeds
+new_other_fccs <- if(dim(new_col_df)[1] > 20) 
+  {sort(as.numeric(new_col_df[c((new_leg_max + 1)):dim(new_col_df)[1], "base_fccs"]))} else{NULL}
+
+  
+new_other_statement <- ifelse(is.null(new_other_fccs),
+                              "", ifelse(length(new_other_fccs) == 1,
+                                         paste0(paste0("Other fuelbeds include: "), 
+                                 paste0(new_other_fccs, ".")), 
+                                 paste0(paste0("Other fuelbeds include: "), 
+                                 paste0(new_other_fccs[-length(new_other_fccs)],  collapse = ", "), 
+                                 paste0(" and ", new_other_fccs[length(new_other_fccs)], "."))))
+
+# create kable table for new legend
+new_leg <- kbl(new_col_leg[,1:3], booktabs = T, linesep = "",  col.names = linebreak(c(" ", "FCCS", "Area (%)")), align = "c") %>%
+  kable_styling(full_width = F) %>%
+  kable_styling(font_size = 10, position = "center") %>% 
+  kable_styling(latex_options = "hold_position") %>% 
+  column_spec(1, color = "black", background = new_col_leg$hex, width = "0.5in") %>% 
+  column_spec(2, width = "0.5in") %>%
+  column_spec(3, width = "0.5in") %>%
+  footnote(general = new_other_statement, general_title = "", threeparttable = TRUE)  
+  
+
+
+# data summary table
+fccs_sum_df <- full_join(new_sum_df, old_sum_df) %>% 
+    replace_na(list(old_area_acres = 0, new_area_acres = 0, old_count = 0, new_count = 0)) %>% 
+    mutate('new-old_area' = new_area_acres - old_area_acres) %>% 
+  select(fccs, old_area_acres, new_area_acres) %>% 
+  mutate(old_area_acres = round(old_area_acres, digits = 0),
+         new_area_acres = round(new_area_acres, digits = 0)) %>% 
+  mutate(fccs = as.numeric(fccs)) %>% 
+  arrange(fccs) %>% 
+  mutate(fccs = as.character(fccs)) 
+ 
+# create kable version of tabe 
+fccs_sum_kbl <- kbl(fccs_sum_df, booktabs = T, linesep = "",  col.names = linebreak(c("FCCS", "Old Area (acres)", "New Area (acres)")), align = "c") %>%
+  kable_styling(full_width = F) %>%
+  kable_styling(font_size = 12, position = "center") %>% 
+  kable_styling(latex_options = "hold_position") 
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# disturbance mapping
+dist_fac <- conus
+
+# color table for dist_codes
+dist_col_df <- dist_codes %>%
+  select(type) %>%
+  distinct() %>%
+  # mutate(type_col = rainbow(8)) %>% 
+  mutate(type_col = c("#1FA187", "#365C8D", "#9FDA3A", "#4AC16D", "#440154", "#FDE725", "#277F8E", "#d3d3d3")) %>%
+  # mutate(type_col = terrain.colors(n = 8)) %>% 
+  # add_row(type = NA,
+  #         type_col = "#FFFFFF") %>%
+  as.data.frame()
+
+
+# aggregate new data to parent FCCS and assign to new_fac
+dist_fccs <- cats(dist_fac)[[1]] %>%
+  select(FCCS, FCCSID, R, G, B) %>% 
+  rowwise() %>% 
+  mutate(FCCSID = gsub("_", "-", FCCSID)) %>% 
+  separate(FCCSID, into = c("base_fccs", "dist_id"), sep = "-") %>% 
+  mutate(base_fccs = as.numeric(base_fccs)) %>% 
+  arrange(base_fccs) %>% 
+  mutate(base_fccs = as.character(base_fccs)) %>% 
+  left_join(., dist_codes) %>% 
+  mutate(type = ifelse(is.na(type), "Not Disturbed", type)) %>% 
+  as.data.frame()
+
+dist_fccs$type <- factor(dist_fccs$type,
+                         levels = c("Not Disturbed",
+                                    "Fire",  
+                                    "Insects and Disease",
+                                    "Mechanical Add Loading",
+                                    "Mechanical Remove Loading",
+                                    "Wind Event"))
+
+
+levels(dist_fac) <- dist_fccs
+activeCat(dist_fac) <- 6
+
+
+# color table for dist_codes
+dist_coltab <- cats(dist_fac)[[1]] %>% 
+  left_join(., dist_col_df) %>% 
+  select(FCCS, type_col) %>% 
+  mutate(type_col = ifelse(is.na(type_col), "#d3d3d3", type_col)) %>% 
+  as.data.frame()
+
+coltab(dist_fac) <- dist_coltab
+
+
+#crop new rasters with unit
+dist_new_cr <- crop(dist_fac, unit, snap="out")                    
+dist_new_fr <- rasterize(unit, dist_new_cr) 
+dist_new <- mask(x=dist_new_cr, mask=dist_new_fr)
+
+# sum data by fuelbed x dataset
+dist_sum <- freq(dist_new)
+
+
+#calculate area for new fccs
+dist_sum_df <- dist_sum %>% 
+  rename(type = value) %>% 
+  group_by(type) %>% 
+  summarise(new_count = sum(count, na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  rowwise() %>% 
+  mutate(new_area_acres = new_count*30*30*0.000247105) %>% 
+  mutate(type = ifelse(is.na(type), "Not Disturbed", type))
+
+
+# create disturbance legend table
+dist_leg_df <- dist_sum_df %>% 
+  mutate(new_area_per = round(new_area_acres/sum(dist_sum_df$new_area_acres)*100, digits = 0)) %>% 
+  mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+  arrange(desc(new_area_per)) %>% 
+  left_join(., dist_col_df) %>% 
+  mutate(blank = rep("", n())) %>% 
+  as.data.frame()
+
+# create kable version of table
+dist_leg <- kbl(dist_leg_df[,c(7, 1, 5)], booktabs = T, linesep = "",  col.names = linebreak(c(" ", "Disturbance", "Area (%)")), align = "c") %>%
+  kable_styling(full_width = F) %>%
+  kable_styling(font_size = 10, position = "center") %>% 
+  kable_styling(latex_options = "hold_position") %>% 
+  column_spec(1, color = "black", background = dist_leg_df$type_col, width = "0.5in") %>% 
+  column_spec(2, width = "3in") %>%
+  column_spec(3, width = "0.5in") 
+
+```
+
+
+Shown below are the old FCCS fuelbeds and new, higher resolution FCCS fuelbeds for the `r params$UNIT`. For the new data which contain LANDFIRE disturbance regimes, only the parent fuelbeds are being mapped for direct comparability to the old data.  
+
+<div class="wrapper">
+  <div class="data_title">Old 1km Data</div>
+  <div></div>
+  <div class="data_title">New 30m Data</div>
+  <div></div>
+  <div>
+  ```{r, fig.height=8, fig.width=8, warning = FALSE, echo=FALSE}
+  terra::plot(unit_old, legend = FALSE, axes = FALSE, box = FALSE, maxcell = Inf, oma=c(0,0,0,0),mar = c(0,0,0,0))
+  plot(st_geometry(unit), add = TRUE)
+  ```
+  </div>
+  <div>
+  ```{r, warning = FALSE, echo=FALSE} 
+  old_leg
+  ```
+  </div>
+  <div>
+  ```{r, fig.height=8, fig.width=8, warning = FALSE, echo=FALSE}
+  terra::plot(unit_new, legend = FALSE, axes = FALSE, box = FALSE, maxcell = Inf, oma=c(0,0,0,0),mar = c(0,0,0,0))
+  plot(st_geometry(unit), add = TRUE)
+  ```
+  </div>
+  <div>
+  ```{r, warning = FALSE, echo=FALSE} 
+  new_leg
+  ```
+  </div>
+</div>
+
+## LANDFIRE Disturbance Mapping 
+
+The map below shows the LANDFIRE disturbance classes on the unit. 
+
+<div class="single_wrapper">
+  <div>
+  </div>
+  <div>
+  ```{r, fig.height=8, fig.width=8, warning = FALSE, echo=FALSE}
+  terra::plot(dist_new, legend = FALSE, axes = FALSE, box = FALSE, maxcell = Inf, oma=c(0,0,0,0),mar = c(0,0,0,0))
+  plot(st_geometry(unit), add = TRUE)
+  ```
+  </div>
+  <div>
+  ```{r, warning = FALSE, echo=FALSE} 
+  dist_leg
+  ```
+  </div>
+  <div>
+  </div>
+</div>
+
+
+
+## Summary Table
+  
+The table below shows the FCCS fuel beds and area occupied across both data sets. The total acreage for this unit is `r unit_area` acres.
+
+```{r show_summary_table, out.wiidth = "100%", echo = FALSE}
+
+fccs_sum_kbl
+
+
+```
+
+
+
+
+

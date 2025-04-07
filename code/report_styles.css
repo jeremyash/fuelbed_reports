@@ -1,0 +1,56 @@
+pre code, pre, code {
+  white-space: pre !important;
+  overflow-x: scroll !important;
+  word-break: keep-all !important;
+  word-wrap: initial !important;
+  
+  // overflow-y: scroll !important;
+  // height: 20vh !important;
+  
+}
+
+body .main-container {
+  overflow-x: hidden;
+  max-width: 1800px;
+  margin-left: 10px;
+  margin-right: 10px;
+}
+
+
+.data_title {
+  font-size: 20px;
+  font-weight: 900;
+} 
+
+.wrapper {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-columns: 4fr 100px 4fr 100px;
+  grid-template-rows: 30px 9fr;
+}
+
+.single_wrapper {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-columns: 2fr 6fr 2fr 2fr;
+}
+
+
+.loading_wrapper {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-columns: 3fr 6fr;
+}
+
+.dist_wrapper {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-columns: 6fr 4fr;
+}
+
+
+
