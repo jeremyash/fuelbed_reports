@@ -234,6 +234,28 @@ hi_fccs_map_fun <- function(AGENCY, UNIT) {
   dev.off()
 }
 
+## apply functions to PSAs ----------------------------------------------
+
+# read in PSA geojson and filter out polygons not in CONUS
+conus_psa <- st_read("gis/National_Predictive_Service_Areas_Boundaries.geojson") %>% 
+  filter(!(OBJECTID %in% c(seq(152,157,1)))) %>% # Puerto Rico
+  filter(!(OBJECTID %in% c(seq(112,116,1)))) %>% # HI
+  filter(!(GACCName == "Alaska Interagency Coordination Center")) %>% # Alaska
+  st_drop_geometry() %>% 
+  pull(OBJECTID)
+
+ak_psa <- st_read("gis/National_Predictive_Service_Areas_Boundaries.geojson") %>% 
+  filter(GACCName == "Alaska Interagency Coordination Center") %>% # Alaska
+  st_drop_geometry() %>% 
+  pull(OBJECTID)
+
+hi_psa <- st_read("gis/National_Predictive_Service_Areas_Boundaries.geojson") %>% 
+  filter(OBJECTID %in% c(seq(112,116,1))) %>% # HI
+  st_drop_geometry() %>% 
+  pull(OBJECTID)
 
 
-
+# apply render function to create reports
+lapply(conus_psa, function(x) conus_fccs_map_fun(x, "PSA"))
+lapply(ak_psa, function(x) ak_fccs_map_fun(x, "PSA"))
+lapply(hi_psa, function(x) hi_fccs_map_fun(x, "PSA"))
