@@ -59,7 +59,7 @@ levels(new_fac) <- base_fccs
 activeCat(new_fac) <- 1
 
 # read in df of colors for all beds
-col_df <- read_csv("../data/col_df.csv",
+col_df <- read_csv("../data/ak_col_df.csv",
                    col_types = list("c", "c")) %>% 
   as.data.frame() 
 
