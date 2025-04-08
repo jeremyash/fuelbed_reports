@@ -69,7 +69,7 @@ coltab(new_fac) <- col_df
 coltab(old) <- col_df
 
 # create dataframe of available gis admin data and filter to specified agency
-sh_ls <- data.frame(agency = c("USFS", "NPS", "DoD", "BLM", ""),
+sh_ls <- data.frame(agency = c("USFS", "NPS", "DoD", "BLM", "PSA"),
                     path = c("../gis/S_USA.AdministrativeForest",
                              "../gis/nps_boundary",
                              "../gis/tl_2019_us_mil",
