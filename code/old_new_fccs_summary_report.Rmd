@@ -1,8 +1,8 @@
 ---
 title: "Old and New FCCS Summary for the `r params$UNIT`"
 params:
-  UNIT: "" # "Superior National Forest" # hardcoded for testing
-  AGENCY: "" # "USFS" # hardcoded for testing
+  UNIT: ""#"Superior National Forest" # hardcoded for testing
+  AGENCY: ""#"USFS" # hardcoded for testing
 output:
   html_document: 
     css: report_styles.css
@@ -69,7 +69,7 @@ coltab(new_fac) <- col_df
 coltab(old) <- col_df
 
 # create dataframe of available gis admin data and filter to specified agency
-sh_ls <- data.frame(agency = c("USFS", "NPS", "DoD", "BLM", ""),
+sh_ls <- data.frame(agency = c("USFS", "NPS", "DoD", "BLM", "PSA"),
                     path = c("../gis/S_USA.AdministrativeForest",
                              "../gis/nps_boundary",
                              "../gis/tl_2019_us_mil",
@@ -95,6 +95,8 @@ unit_old <- mask(x=unit_old_cr, mask=unit_old_fr)
 unit_new_cr <- crop(new_fac, unit, snap="out")                    
 unit_new_fr <- rasterize(unit, unit_new_cr) 
 unit_new <- mask(x=unit_new_cr, mask=unit_new_fr)
+
+
 
 # sum data by fuelbed x dataset
 new_sum <- freq(unit_new)
@@ -173,6 +175,23 @@ new_col_df <- new_sum_df %>%
   left_join(., col_df) %>% 
   mutate(blank = rep("", n())) %>% 
   as.data.frame()
+
+# write area to file
+new_fccs_area_df <- new_sum_df %>% 
+  rename(base_fccs = fccs) %>% 
+  mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>% 
+  mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+  arrange(desc(new_area_per)) %>% 
+  select(base_fccs,
+         area_percentage = new_area_per)
+
+write_csv(new_fccs_area_df,
+          paste0("../federal_unit_reports_v2/",
+                AGENCY,
+                "/",
+                UNIT,
+                "_30m_fccs_fuelbed_area.csv"))
+
 new_col_leg <- new_col_df[1:new_leg_max, c("blank", "base_fccs", "new_area_char", "hex")]
 
 # text of other fuelbeds
