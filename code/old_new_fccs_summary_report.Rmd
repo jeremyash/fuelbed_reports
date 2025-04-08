@@ -183,7 +183,7 @@ new_fccs_area_df <- new_sum_df %>%
   mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
   arrange(desc(new_area_per)) %>% 
   select(base_fccs,
-         area_percentage = new_area_per)
+         area_percentage = new_area_char)
 
 write_csv(new_fccs_area_df,
           paste0("../federal_unit_reports_v2/",
@@ -332,7 +332,7 @@ dist_leg <- kbl(dist_leg_df[,c(7, 1, 5)], booktabs = T, linesep = "",  col.names
 ```
 
 
-Shown below are the old FCCS fuelbeds and new, higher resolution FCCS fuelbeds for the `r params$UNIT`. For the new data which contain LANDFIRE disturbance regimes, only the parent fuelbeds are being mapped for direct comparability to the old data.  
+Shown below are the old FCCS fuelbeds and new, higher resolution FCCS fuelbeds for Predictive Service Area  `r params$UNIT`. For the new data which contain LANDFIRE disturbance regimes, only the parent fuelbeds are being mapped for direct comparability to the old data.  
 
 <div class="wrapper">
   <div class="data_title">Old 1km Data</div>
