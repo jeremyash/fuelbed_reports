@@ -36,10 +36,10 @@ dist_codes <- read_csv("../raw_data/DisturbanceCodes.csv") %>%
   mutate(dist_id = as.character(dist_id))
 
 # read in new and old FCCS data
-conus <- rast("../gis/LF2022_FCCS_220_AK/LF2022_FCCS_220_CONUS/Tif/LA22_FCCS_220.tif")
+conus <- rast("../gis/LF2022_FCCS_220_AK/LF2022_FCCS_220_AK/Tif/LA22_FCCS_220.tif")
 new_fac <- conus
 
-old <- rast("../gis/old2_project_30m.tif")
+old <- rast("../gis/ak_old_project_30m.tif")
 colnames(levels(old)[[1]])[2] <- "base_fccs"
 
 # aggregate new data to parent FCCS fuelbed and assign to new_fac
