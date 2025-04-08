@@ -1,8 +1,8 @@
 ---
-title: "Old and New FCCS Summary for the `r params$UNIT`"
+title: "Old and New FCCS Summary for Predictive Service Area `r params$UNIT`"
 params:
-  UNIT: ""#"Superior National Forest" # hardcoded for testing
-  AGENCY: ""#"USFS" # hardcoded for testing
+  UNIT: "22"#"Superior National Forest" # hardcoded for testing
+  AGENCY: "PSA"#"USFS" # hardcoded for testing
 output:
   html_document: 
     css: report_styles.css
