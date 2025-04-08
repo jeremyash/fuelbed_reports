@@ -1,8 +1,8 @@
 ---
 title: "Old and New FCCS Summary for the `r params$UNIT`"
 params:
-  UNIT: "" # "Superior National Forest" # hardcoded for testing
-  AGENCY: "" # "USFS" # hardcoded for testing
+  UNIT: ""#"Superior National Forest" # hardcoded for testing
+  AGENCY: ""#"USFS" # hardcoded for testing
 output:
   html_document: 
     css: report_styles.css
@@ -36,7 +36,7 @@ dist_codes <- read_csv("../raw_data/DisturbanceCodes.csv") %>%
   mutate(dist_id = as.character(dist_id))
 
 # read in new and old FCCS data
-conus <- rast("../gis/LF2022_FCCS_220_AK/LF2022_FCCS_220_AK/Tif/LA22_FCCS_220.tif")
+conus <- rast("../gis/LF2022_FCCS_220_AK/LF2022_FCCS_220_CONUS/Tif/LA22_FCCS_220.tif")
 new_fac <- conus
 
 old <- rast("../gis/old2_project_30m.tif")
@@ -95,6 +95,8 @@ unit_old <- mask(x=unit_old_cr, mask=unit_old_fr)
 unit_new_cr <- crop(new_fac, unit, snap="out")                    
 unit_new_fr <- rasterize(unit, unit_new_cr) 
 unit_new <- mask(x=unit_new_cr, mask=unit_new_fr)
+
+
 
 # sum data by fuelbed x dataset
 new_sum <- freq(unit_new)
@@ -173,6 +175,23 @@ new_col_df <- new_sum_df %>%
   left_join(., col_df) %>% 
   mutate(blank = rep("", n())) %>% 
   as.data.frame()
+
+# write area to file
+new_fccs_area_df <- new_sum_df %>% 
+  rename(base_fccs = fccs) %>% 
+  mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>% 
+  mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+  arrange(desc(new_area_per)) %>% 
+  select(base_fccs,
+         area_percentage = new_area_char)
+
+write_csv(new_fccs_area_df,
+          paste0("../federal_unit_reports_v2/",
+                AGENCY,
+                "/",
+                UNIT,
+                "_30m_fccs_fuelbed_area.csv"))
+
 new_col_leg <- new_col_df[1:new_leg_max, c("blank", "base_fccs", "new_area_char", "hex")]
 
 # text of other fuelbeds
@@ -313,7 +332,7 @@ dist_leg <- kbl(dist_leg_df[,c(7, 1, 5)], booktabs = T, linesep = "",  col.names
 ```
 
 
-Shown below are the old FCCS fuelbeds and new, higher resolution FCCS fuelbeds for the `r params$UNIT`. For the new data which contain LANDFIRE disturbance regimes, only the parent fuelbeds are being mapped for direct comparability to the old data.  
+Shown below are the old FCCS fuelbeds and new, higher resolution FCCS fuelbeds for Predictive Service Area  `r params$UNIT`. For the new data which contain LANDFIRE disturbance regimes, only the parent fuelbeds are being mapped for direct comparability to the old data.  
 
 <div class="wrapper">
   <div class="data_title">Old 1km Data</div>
