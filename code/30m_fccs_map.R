@@ -9,7 +9,7 @@ library(readxl)
 
 ##  function to create image of 30m fccs for PSAs  ----------------------------------------------
 
-conus_fccs_map_fun <- function(AGENCY, UNIT) {
+conus_fccs_map_fun <- function(UNIT, AGENCY) {
   
   # load disturbance codes
   dist_codes <- read_csv("raw_data/DisturbanceCodes.csv") %>% 
@@ -70,6 +70,35 @@ conus_fccs_map_fun <- function(AGENCY, UNIT) {
   unit_new_fr <- rasterize(unit, unit_new_cr) 
   unit_new <- mask(x=unit_new_cr, mask=unit_new_fr)
   
+  # sum data by fuelbed x dataset
+  new_sum <- freq(unit_new)
+  
+  #calculate area for new fccs
+  new_sum_df <- new_sum %>% 
+    rename(fccs = value) %>% 
+    group_by(fccs) %>% 
+    summarise(new_count = sum(count, na.rm=TRUE)) %>% 
+    ungroup() %>% 
+    rowwise() %>% 
+    mutate(new_area_acres = new_count*30*30*0.000247105)
+  
+  
+  # write area to file
+  new_fccs_area_df <- new_sum_df %>% 
+    rename(base_fccs = fccs) %>% 
+    mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>% 
+    mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+    arrange(desc(new_area_per)) %>% 
+    select(base_fccs,
+           area_percentage = new_area_char)
+  
+  write_csv(new_fccs_area_df,
+            paste0("federal_unit_reports_v2/",
+                   AGENCY,
+                   "/",
+                   UNIT,
+                   "_30m_fccs_fuelbed_area.csv"))
+  
   
   
   # write image to file
@@ -84,8 +113,7 @@ conus_fccs_map_fun <- function(AGENCY, UNIT) {
 }
 
 
-
-ak_fccs_map_fun <- function(AGENCY, UNIT) {
+ak_fccs_map_fun <- function(UNIT, AGENCY) {
   
   # load disturbance codes
   dist_codes <- read_csv("raw_data/DisturbanceCodes.csv") %>% 
@@ -116,7 +144,7 @@ ak_fccs_map_fun <- function(AGENCY, UNIT) {
   activeCat(new_fac) <- 1
   
   # read in df of colors for all beds
-  col_df <- read_csv("data/col_df.csv",
+  col_df <- read_csv("data/ak_col_df.csv",
                      col_types = list("c", "c")) %>% 
     as.data.frame() 
   
@@ -140,14 +168,43 @@ ak_fccs_map_fun <- function(AGENCY, UNIT) {
   unit <- st_transform(unit_unproj, crs = crs(conus)) %>%
     mutate(ID = seq(1, n(), 1))
   unit_area <- formatC(round(as.numeric(st_area(unit)*0.000247105), digits = 0), format = "d", big.mark = ",")
-  
+
   # crop new rasters with unit
-  unit_new_cr <- crop(new_fac, unit, snap="out")                    
-  unit_new_fr <- rasterize(unit, unit_new_cr) 
+  unit_new_cr <- crop(new_fac, unit, snap="out")
+  unit_new_fr <- rasterize(unit, unit_new_cr)
   unit_new <- mask(x=unit_new_cr, mask=unit_new_fr)
-  
-  
-  
+
+  # sum data by fuelbed x dataset
+  new_sum <- freq(unit_new)
+
+  #calculate area for new fccs
+  new_sum_df <- new_sum %>%
+    rename(fccs = value) %>%
+    group_by(fccs) %>%
+    summarise(new_count = sum(count, na.rm=TRUE)) %>%
+    ungroup() %>%
+    rowwise() %>%
+    mutate(new_area_acres = new_count*30*30*0.000247105)
+
+
+  # write area to file
+  new_fccs_area_df <- new_sum_df %>%
+    rename(base_fccs = fccs) %>%
+    mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>%
+    mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>%
+    arrange(desc(new_area_per)) %>%
+    select(base_fccs,
+           area_percentage = new_area_char)
+
+  write_csv(new_fccs_area_df,
+            paste0("federal_unit_reports_v2/",
+                   AGENCY,
+                   "/",
+                   UNIT,
+                   "_30m_fccs_fuelbed_area.csv"))
+
+
+
   # write image to file
   png(filename=paste0("federal_unit_reports_v2/",
                       AGENCY,
@@ -160,7 +217,7 @@ ak_fccs_map_fun <- function(AGENCY, UNIT) {
 }
 
 
-hi_fccs_map_fun <- function(AGENCY, UNIT) {
+hi_fccs_map_fun <- function(UNIT, AGENCY) {
   
   # load disturbance codes
   dist_codes <- read_csv("raw_data/DisturbanceCodes.csv") %>% 
@@ -245,7 +302,7 @@ hi_fccs_map_fun <- function(AGENCY, UNIT) {
            area_percentage = new_area_char)
   
   write_csv(new_fccs_area_df,
-            paste0("../federal_unit_reports_v2/",
+            paste0("federal_unit_reports_v2/",
                    AGENCY,
                    "/",
                    UNIT,
@@ -286,5 +343,9 @@ hi_psa <- st_read("gis/National_Predictive_Service_Areas_Boundaries.geojson") %>
 
 # apply render function to create reports
 lapply(conus_psa, function(x) conus_fccs_map_fun(x, "PSA"))
-lapply(ak_psa, function(x) ak_fccs_map_fun(x, "PSA"))
-lapply(hi_psa, function(x) hi_fccs_map_fun(x, "PSA"))
+lapply(as.character(ak_psa), function(x) ak_fccs_map_fun(x, "PSA"))
+lapply(as.character(hi_psa), function(x) hi_fccs_map_fun(x, "PSA"))
+
+
+
+
