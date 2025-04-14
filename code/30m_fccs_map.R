@@ -5,9 +5,13 @@ library(terra)
 ## DATA MANAGEMENT
 library(tidyverse)
 library(readxl)
-
+library(kableExtra)
+library(webshot)
+library(magick)
+library(htmltools)
 
 ##  function to create image of 30m fccs for PSAs  ----------------------------------------------
+
 
 conus_fccs_map_fun <- function(UNIT, AGENCY) {
   
@@ -100,16 +104,83 @@ conus_fccs_map_fun <- function(UNIT, AGENCY) {
                    "_30m_fccs_fuelbed_area.csv"))
   
   
+  # create new legend table
+  new_leg_max <- ifelse(dim(new_sum_df)[1] <= 20, dim(new_sum_df)[1], 20)
+  new_col_df <- new_sum_df %>% 
+    rename(base_fccs = fccs) %>% 
+    mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>% 
+    mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+    arrange(desc(new_area_per)) %>% 
+    left_join(., col_df) %>% 
+    mutate(blank = rep("", n())) %>% 
+    as.data.frame()
+  
+  new_col_leg <- new_col_df[1:new_leg_max, c("blank", "base_fccs", "new_area_char", "hex")]
+  
+  # text of other fuelbeds
+  new_other_fccs <- if(dim(new_col_df)[1] > 20) {
+    sort(as.numeric(new_col_df[c((new_leg_max + 1)):dim(new_col_df)[1], "base_fccs"]))} else{NULL}
+  
+  
+  new_other_statement <- ifelse(is.null(new_other_fccs),
+                                "", ifelse(length(new_other_fccs) == 1,
+                                           paste0(paste0("Other fuelbeds include: "), 
+                                                  paste0(new_other_fccs, ".")), 
+                                           paste0(paste0("Other fuelbeds include: "), 
+                                                  paste0(new_other_fccs[-length(new_other_fccs)],  collapse = ", "), 
+                                                  paste0(" and ", new_other_fccs[length(new_other_fccs)], "."))))
+  
+  # create kable table for new legend
+  new_leg <- kbl(new_col_leg[,1:3], booktabs = T, linesep = "",  col.names = linebreak(c(" ", "FCCS", "Area (%)")), align = "c", format = "html") %>%
+    kable_styling(full_width = F) %>%
+    kable_styling(font_size = 10, position = "center") %>% 
+    kable_styling(latex_options = "hold_position") %>% 
+    column_spec(1, color = "black", background = new_col_leg$hex, width = "0.5in") %>% 
+    column_spec(2, width = "0.5in") %>%
+    column_spec(3, width = "0.5in") %>%
+    footnote(general = new_other_statement, general_title = "", threeparttable = TRUE)  
+  
+  
   
   # write image to file
-  png(filename=paste0("federal_unit_reports_v2/",
-                      AGENCY,
-                      "/",
+  png(filename=paste0("temp_files/",
                       UNIT,
-                      "_30m_fccs_map.png"))
-  terra::plot(unit_new, legend = FALSE, axes = FALSE, box = FALSE, maxcell = Inf, oma=c(5,5,5,5),mar = c(2,2,2,2))
+                      "_30m_fccs_map.png"),
+      height = 1000,
+      width = 1000)
+  terra::plot(unit_new, 
+              legend = FALSE, 
+              axes = FALSE, 
+              box = FALSE, 
+              maxcell = 5e8, 
+              oma=c(5,5,5,5),
+              mar = c(2,2,2,2))
   plot(st_geometry(unit), add = TRUE)
   dev.off()
+  
+  # save kable to png
+  save_kable(new_leg, 
+             file = paste0("temp_files/",
+                           UNIT,
+                           "_30m_fccs_legend_test.png"),
+             density = 1000,
+             zoom = 1.3)
+  
+  # Combine side by side with magick
+  map <- image_read(paste0("temp_files/",
+                           UNIT,
+                           "_30m_fccs_map.png"))
+  
+  legend <- image_read(paste0("temp_files/",
+                            UNIT,
+                            "_30m_fccs_legend_test.png"))
+  
+  combined <- image_append(c(map, legend))
+  image_write(combined, paste0("federal_unit_reports_v2/",
+                               AGENCY,
+                               "/",
+                               UNIT,
+                               "_30m_fccs_map.png"))
 }
 
 
@@ -144,7 +215,7 @@ ak_fccs_map_fun <- function(UNIT, AGENCY) {
   activeCat(new_fac) <- 1
   
   # read in df of colors for all beds
-  col_df <- read_csv("data/ak_col_df.csv",
+  col_df <- read_csv("data/col_df.csv",
                      col_types = list("c", "c")) %>% 
     as.data.frame() 
   
@@ -176,44 +247,110 @@ ak_fccs_map_fun <- function(UNIT, AGENCY) {
 
   # sum data by fuelbed x dataset
   new_sum <- freq(unit_new)
-
+  
   #calculate area for new fccs
-  new_sum_df <- new_sum %>%
-    rename(fccs = value) %>%
-    group_by(fccs) %>%
-    summarise(new_count = sum(count, na.rm=TRUE)) %>%
-    ungroup() %>%
-    rowwise() %>%
+  new_sum_df <- new_sum %>% 
+    rename(fccs = value) %>% 
+    group_by(fccs) %>% 
+    summarise(new_count = sum(count, na.rm=TRUE)) %>% 
+    ungroup() %>% 
+    rowwise() %>% 
     mutate(new_area_acres = new_count*30*30*0.000247105)
-
-
+  
+  
   # write area to file
-  new_fccs_area_df <- new_sum_df %>%
-    rename(base_fccs = fccs) %>%
-    mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>%
-    mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>%
-    arrange(desc(new_area_per)) %>%
+  new_fccs_area_df <- new_sum_df %>% 
+    rename(base_fccs = fccs) %>% 
+    mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>% 
+    mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+    arrange(desc(new_area_per)) %>% 
     select(base_fccs,
            area_percentage = new_area_char)
-
+  
   write_csv(new_fccs_area_df,
             paste0("federal_unit_reports_v2/",
                    AGENCY,
                    "/",
                    UNIT,
                    "_30m_fccs_fuelbed_area.csv"))
-
-
-
+  
+  
+  # create new legend table
+  new_leg_max <- ifelse(dim(new_sum_df)[1] <= 20, dim(new_sum_df)[1], 20)
+  new_col_df <- new_sum_df %>% 
+    rename(base_fccs = fccs) %>% 
+    mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>% 
+    mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+    arrange(desc(new_area_per)) %>% 
+    left_join(., col_df) %>% 
+    mutate(blank = rep("", n())) %>% 
+    as.data.frame()
+  
+  new_col_leg <- new_col_df[1:new_leg_max, c("blank", "base_fccs", "new_area_char", "hex")]
+  
+  # text of other fuelbeds
+  new_other_fccs <- if(dim(new_col_df)[1] > 20) {
+    sort(as.numeric(new_col_df[c((new_leg_max + 1)):dim(new_col_df)[1], "base_fccs"]))} else{NULL}
+  
+  
+  new_other_statement <- ifelse(is.null(new_other_fccs),
+                                "", ifelse(length(new_other_fccs) == 1,
+                                           paste0(paste0("Other fuelbeds include: "), 
+                                                  paste0(new_other_fccs, ".")), 
+                                           paste0(paste0("Other fuelbeds include: "), 
+                                                  paste0(new_other_fccs[-length(new_other_fccs)],  collapse = ", "), 
+                                                  paste0(" and ", new_other_fccs[length(new_other_fccs)], "."))))
+  
+  # create kable table for new legend
+  new_leg <- kbl(new_col_leg[,1:3], booktabs = T, linesep = "",  col.names = linebreak(c(" ", "FCCS", "Area (%)")), align = "c", format = "html") %>%
+    kable_styling(full_width = F) %>%
+    kable_styling(font_size = 10, position = "center") %>% 
+    kable_styling(latex_options = "hold_position") %>% 
+    column_spec(1, color = "black", background = new_col_leg$hex, width = "0.5in") %>% 
+    column_spec(2, width = "0.5in") %>%
+    column_spec(3, width = "0.5in") %>%
+    footnote(general = new_other_statement, general_title = "", threeparttable = TRUE)  
+  
+  
   # write image to file
-  png(filename=paste0("federal_unit_reports_v2/",
-                      AGENCY,
-                      "/",
+  png(filename=paste0("temp_files/",
                       UNIT,
-                      "_30m_fccs_map.png"))
-  terra::plot(unit_new, legend = FALSE, axes = FALSE, box = FALSE, maxcell = Inf, oma=c(5,5,5,5),mar = c(2,2,2,2))
+                      "_30m_fccs_map.png"),
+      height = 1000,
+      width = 1000)
+  terra::plot(unit_new, 
+              legend = FALSE, 
+              axes = FALSE, 
+              box = FALSE, 
+              maxcell = 5e8, 
+              oma=c(5,5,5,5),
+              mar = c(2,2,2,2))
   plot(st_geometry(unit), add = TRUE)
   dev.off()
+  
+  # save kable to png
+  save_kable(new_leg, 
+             file = paste0("temp_files/",
+                           UNIT,
+                           "_30m_fccs_legend_test.png"),
+             density = 1000,
+             zoom = 1.3)
+  
+  # Combine side by side with magick
+  map <- image_read(paste0("temp_files/",
+                           UNIT,
+                           "_30m_fccs_map.png"))
+  
+  legend <- image_read(paste0("temp_files/",
+                              UNIT,
+                              "_30m_fccs_legend_test.png"))
+  
+  combined <- image_append(c(map, legend))
+  image_write(combined, paste0("federal_unit_reports_v2/",
+                               AGENCY,
+                               "/",
+                               UNIT,
+                               "_30m_fccs_map.png"))
 }
 
 
@@ -290,7 +427,7 @@ hi_fccs_map_fun <- function(UNIT, AGENCY) {
     ungroup() %>% 
     rowwise() %>% 
     mutate(new_area_acres = new_count*30*30*0.000247105)
-
+  
   
   # write area to file
   new_fccs_area_df <- new_sum_df %>% 
@@ -309,15 +446,83 @@ hi_fccs_map_fun <- function(UNIT, AGENCY) {
                    "_30m_fccs_fuelbed_area.csv"))
   
   
+  # create new legend table
+  new_leg_max <- ifelse(dim(new_sum_df)[1] <= 20, dim(new_sum_df)[1], 20)
+  new_col_df <- new_sum_df %>% 
+    rename(base_fccs = fccs) %>% 
+    mutate(new_area_per = round(new_area_acres/sum(new_sum_df$new_area_acres)*100, digits = 0)) %>% 
+    mutate(new_area_char = ifelse(new_area_per < 1, "<1", as.character(new_area_per))) %>% 
+    arrange(desc(new_area_per)) %>% 
+    left_join(., col_df) %>% 
+    mutate(blank = rep("", n())) %>% 
+    as.data.frame()
+  
+  new_col_leg <- new_col_df[1:new_leg_max, c("blank", "base_fccs", "new_area_char", "hex")]
+  
+  # text of other fuelbeds
+  new_other_fccs <- if(dim(new_col_df)[1] > 20) {
+    sort(as.numeric(new_col_df[c((new_leg_max + 1)):dim(new_col_df)[1], "base_fccs"]))} else{NULL}
+  
+  
+  new_other_statement <- ifelse(is.null(new_other_fccs),
+                                "", ifelse(length(new_other_fccs) == 1,
+                                           paste0(paste0("Other fuelbeds include: "), 
+                                                  paste0(new_other_fccs, ".")), 
+                                           paste0(paste0("Other fuelbeds include: "), 
+                                                  paste0(new_other_fccs[-length(new_other_fccs)],  collapse = ", "), 
+                                                  paste0(" and ", new_other_fccs[length(new_other_fccs)], "."))))
+  
+  # create kable table for new legend
+  new_leg <- kbl(new_col_leg[,1:3], booktabs = T, linesep = "",  col.names = linebreak(c(" ", "FCCS", "Area (%)")), align = "c", format = "html") %>%
+    kable_styling(full_width = F) %>%
+    kable_styling(font_size = 10, position = "center") %>% 
+    kable_styling(latex_options = "hold_position") %>% 
+    column_spec(1, color = "black", background = new_col_leg$hex, width = "0.5in") %>% 
+    column_spec(2, width = "0.5in") %>%
+    column_spec(3, width = "0.5in") %>%
+    footnote(general = new_other_statement, general_title = "", threeparttable = TRUE)  
+  
+  
+  
   # write image to file
-  png(filename=paste0("federal_unit_reports_v2/",
-                      AGENCY,
-                      "/",
+  png(filename=paste0("temp_files/",
                       UNIT,
-                      "_30m_fccs_map.png"))
-  terra::plot(unit_new, legend = FALSE, axes = FALSE, box = FALSE, maxcell = Inf, oma=c(5,5,5,5),mar = c(2,2,2,2))
+                      "_30m_fccs_map.png"),
+      height = 1000,
+      width = 1000)
+  terra::plot(unit_new, 
+              legend = FALSE, 
+              axes = FALSE, 
+              box = FALSE, 
+              maxcell = 5e8, 
+              oma=c(5,5,5,5),
+              mar = c(2,2,2,2))
   plot(st_geometry(unit), add = TRUE)
   dev.off()
+  
+  # save kable to png
+  save_kable(new_leg, 
+             file = paste0("temp_files/",
+                           UNIT,
+                           "_30m_fccs_legend_test.png"),
+             density = 1000,
+             zoom = 1.3)
+  
+  # Combine side by side with magick
+  map <- image_read(paste0("temp_files/",
+                           UNIT,
+                           "_30m_fccs_map.png"))
+  
+  legend <- image_read(paste0("temp_files/",
+                              UNIT,
+                              "_30m_fccs_legend_test.png"))
+  
+  combined <- image_append(c(map, legend))
+  image_write(combined, paste0("federal_unit_reports_v2/",
+                               AGENCY,
+                               "/",
+                               UNIT,
+                               "_30m_fccs_map.png"))
 }
 
 ## apply functions to PSAs ----------------------------------------------
@@ -342,9 +547,18 @@ hi_psa <- st_read("gis/National_Predictive_Service_Areas_Boundaries.geojson") %>
 
 
 # apply render function to create reports
-lapply(conus_psa, function(x) conus_fccs_map_fun(x, "PSA"))
+lapply(as.character(conus_psa), function(x) conus_fccs_map_fun(x, "PSA"))
 lapply(as.character(ak_psa), function(x) ak_fccs_map_fun(x, "PSA"))
+lapply(as.character(ak_psa[11:22]), function(x) ak_fccs_map_fun(x, "PSA"))
 lapply(as.character(hi_psa), function(x) hi_fccs_map_fun(x, "PSA"))
+
+lapply(as.character(hi_psa), function(x) hi_fccs_map_fun(x, "PSA"))
+
+hi_fccs_map_fun("116", "PSA") # doesn't work
+hi_fccs_map_fun("112", "PSA") # doesn't work
+hi_fccs_map_fun("113", "PSA") 
+hi_fccs_map_fun("114", "PSA") # doesn't work
+hi_fccs_map_fun("115", "PSA") #doesn't work
 
 
 
